@@ -8,7 +8,7 @@ import os
 import sys
 
 class MapConverter():
-    def __init__(self, map_dir, export_dir, threshold=105, height=2.0):
+    def __init__(self, map_dir, export_dir, threshold=105, height=0.6):
         
         self.threshold = threshold
         self.height = height
