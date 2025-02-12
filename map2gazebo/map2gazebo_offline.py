@@ -99,6 +99,7 @@ class MapConverter():
             meshes.append(mesh)
         mesh = trimesh.util.concatenate(meshes)
         mesh.update_faces(mesh.unique_faces())
+        mesh.apply_scale(1.2)
         # mesh will still have internal faces.  Would be better to get
         # all duplicate faces and remove both of them, since duplicate faces
         # are guaranteed to be internal faces
