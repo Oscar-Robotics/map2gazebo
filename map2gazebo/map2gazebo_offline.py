@@ -32,13 +32,10 @@ class MapConverter():
         
         # set all -1 (unknown) values to 0 (unoccupied)
         map_array[map_array < 0] = 0
-        contours = self.get_occupied_regions(map_array)
+        tresh_map = self.get_occupied_regions(map_array)
         print('Processing...')
-        meshes = [self.contour_to_mesh(c, map_info) for c in contours]
+        mesh = self.cells_to_mesh(tresh_map, map_info)
 
-        corners = list(np.vstack(contours))
-        corners = [c[0] for c in corners]
-        mesh = trimesh.util.concatenate(meshes)
         if not self.export_dir.endswith('/'):
             self.export_dir = self.export_dir + '/'
         file_dir = self.export_dir + map_info['image'].replace('pgm','stl')
@@ -48,62 +45,55 @@ class MapConverter():
             mesh.export(f, "stl")
     
     def get_occupied_regions(self, map_array):
-        """
-        Get occupied regions of map
-        """
         map_array = map_array.astype(np.uint8)
-        _, thresh_map = cv2.threshold(
-                map_array, self.threshold, 100, cv2.THRESH_BINARY)
-        contours, hierarchy = cv2.findContours(
-                thresh_map, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
-        # Using cv2.RETR_CCOMP classifies external contours at top level of
-        # hierarchy and interior contours at second level.  
-        # If the whole space is enclosed by walls RETR_EXTERNAL will exclude
-        # all interior obstacles e.g. furniture.
-        # https://docs.opencv.org/trunk/d9/d8b/tutorial_py_contours_hierarchy.html
-        hierarchy = hierarchy[0]
-        output_contours = []
-        for idx, contour in enumerate(contours):
-            output_contours.append(contour) if 0 not in contour else print('Remove image boundary')
-            
-        return output_contours
-
-    def contour_to_mesh(self, contour, metadata):
-        height = np.array([0, 0, self.height])
+        _, thresh_map = cv2.threshold(map_array, self.threshold, 100, cv2.THRESH_BINARY)
+        # Now get the indices of occupied cells directly from the thresholded map
+        occupied_cells = np.column_stack(np.where(thresh_map != 100))  # Get coordinates of non-zero cells
+        
+        return occupied_cells
+    
+    def cells_to_mesh(self, occupied_cells, metadata):
+        height = np.array([0, 0, self.height])  # The height of the prisms
         meshes = []
-        for point in contour:
-            x, y = point[0]
-            vertices = []
+        
+        for cell in occupied_cells:
+            y, x = cell  # Extract row and column for each occupied cell
+            
+            # Define the four corners of the occupied cell
             new_vertices = [
-                    self.coords_to_loc((x, y), metadata),
-                    self.coords_to_loc((x, y+1), metadata),
-                    self.coords_to_loc((x+1, y), metadata),
-                    self.coords_to_loc((x+1, y+1), metadata)]
+                self.coords_to_loc((x - 0.5, y - 0.5), metadata),
+                self.coords_to_loc((x - 0.5, y + 0.5), metadata),
+                self.coords_to_loc((x + 0.5, y - 0.5), metadata),
+                self.coords_to_loc((x + 0.5, y + 0.5), metadata)
+            ]
+            
+            # Add height to create the 3D vertices (top and bottom faces of the prism)
+            vertices = []
             vertices.extend(new_vertices)
             vertices.extend([v + height for v in new_vertices])
-            faces = [[0, 2, 4],
-                     [4, 2, 6],
-                     [1, 2, 0],
-                     [3, 2, 1],
-                     [5, 0, 4],
-                     [1, 0, 5],
-                     [3, 7, 2],
-                     [7, 6, 2],
-                     [7, 4, 6],
-                     [5, 4, 7],
-                     [1, 5, 3],
-                     [7, 3, 5]]
+            
+            # Define the faces of the prism (6 faces for a rectangular prism)
+            faces = [
+                [0, 2, 4], [4, 2, 6],  # Front faces
+                [1, 2, 0], [3, 2, 1],  # Back faces
+                [5, 0, 4], [1, 0, 5],  # Bottom faces
+                [3, 7, 2], [7, 6, 2],  # Top faces
+                [7, 4, 6], [5, 4, 7],  # Left faces
+                [1, 5, 3], [7, 3, 5]   # Right faces
+            ]
+            
+            # Create the mesh for the prism
             mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
             if not mesh.is_volume:
-                mesh.fix_normals()
-            meshes.append(mesh)
-        mesh = trimesh.util.concatenate(meshes)
-        mesh.update_faces(mesh.unique_faces())
-        mesh.apply_scale(1.2)
-        # mesh will still have internal faces.  Would be better to get
-        # all duplicate faces and remove both of them, since duplicate faces
-        # are guaranteed to be internal faces
-        return mesh
+                mesh.fix_normals()  # Ensure correct normals if the mesh is not solid
+            
+            meshes.append(mesh)  # Add the mesh for this occupied cell
+        
+        # Combine all meshes into a single mesh
+        combined_mesh = trimesh.util.concatenate(meshes)
+        combined_mesh.update_faces(combined_mesh.unique_faces())
+        
+        return combined_mesh
 
     def coords_to_loc(self,coords, metadata):
         x, y = coords
