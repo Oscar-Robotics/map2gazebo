@@ -8,12 +8,13 @@ import os
 import sys
 
 class MapConverter():
-    def __init__(self, map_dir, export_dir, threshold=105, height=0.6):
+    def __init__(self, map_dir, info_dir, export_dir, threshold=105, height=0.6):
         
         self.threshold = threshold
         self.height = height
         self.export_dir = export_dir
         self.map_dir = map_dir
+        self.info_dir = info_dir
 
     def map_callback(self):
         
@@ -25,9 +26,8 @@ class MapConverter():
         except cv2.error as err:
             print(err, "Conversion failed: Invalid image input, please check your file path")    
             sys.exit()
-        info_dir = self.map_dir.replace('pgm','yaml')
 
-        with open(info_dir, 'r') as stream:
+        with open(self.info_dir, 'r') as stream:
             map_info = yaml.load(stream, Loader=yaml.FullLoader) 
         
         # set all -1 (unknown) values to 0 (unoccupied)
@@ -111,12 +111,21 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '--info_dir', type=str, default=None, required=False,
+        help='File name of the map info file (yaml) to convert'
+    )
+
+    parser.add_argument(
         '--export_dir', type=str, default=os.path.abspath('.'),
         help='Mesh output directory'
     )
 
     option = parser.parse_args()
 
-    Converter = MapConverter(option.map_dir, option.export_dir)
+    # If info file not provided, assume it is in the same directory as the map file
+    if option.info_dir is None:
+        option.info_dir = option.map_dir.replace('pgm', 'yaml')
+
+    Converter = MapConverter(option.map_dir, option.info_dir, option.export_dir)
     Converter.map_callback()
     print('Conversion Done')
